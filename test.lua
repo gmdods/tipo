@@ -9,7 +9,7 @@ end
 local _true = (function()
 	local ssa_0 = tipo.fn { _from = 1, _to = tipo.bind(1) }
 	local ssa_1 = tipo.call { _fn = tipo.bind(0), _with = true }
-	return tipo.let { _let = 1, ssa_0, _in = ssa_1 }
+	return tipo.let { _let = 1, _be = ssa_0, _in = ssa_1 }
 end)()
 
 -- assert(tipo.infer(_true) == { tipo.arrow { tipo.bool, tipo.bool }, tipo.bool })
