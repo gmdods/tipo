@@ -53,7 +53,8 @@ setmetatable(tipo.ifte, construct(tipo.ifte.new))
 
 -- Types
 
-tipo.bool = {}
+tipo.bool = { _type = "bool" }
+setmetatable(tipo.bool, tipo.bool)
 
 tipo.arrow = {}
 function tipo.arrow.new(t)
@@ -78,19 +79,26 @@ function tipo.constraints(lang)
 	end
 
 	local function unify(lhs, rhs)
-		table.insert(q, { _lhs = lhs, _rhs = rhs })
+		local tag = getmetatable(lhs)
+		if type(lhs) == "number" or type(rhs) == "number"
+		    or tag ~= getmetatable(rhs) then
+			table.insert(q, { _lhs = lhs, _rhs = rhs })
+			return
+		end
+		if tag == tipo.arrow then
+			unify(lhs._from, rhs._from)
+			unify(lhs._to, rhs._to)
+		elseif tag == tipo.bool then
+			return
+		else
+			assert(false)
+		end
 	end
 
 	local function loop(recur)
 		local tag = getmetatable(recur)
 		if tag == tipo.bind then
-			local r = t[recur._bind]
-			if r then
-				return r
-			else
-				n = n + 1
-				return n
-			end
+			return t[recur._bind] or cell()
 		elseif tag == tipo.let then
 			t[recur._let] = loop(recur._be)
 			return loop(recur._in)
@@ -116,6 +124,79 @@ function tipo.constraints(lang)
 	end
 	loop(lang)
 	return n, t, q
+end
+
+local function solver(ref, q, eq)
+	if not eq then return 1 end
+	local lhs, rhs = eq._lhs, eq._rhs
+	if type(lhs) == "number" and type(rhs) == "number" then
+		if ref[lhs] and ref[rhs] then
+			return solver(ref, q, { _lhs = ref[lhs], _rhs = ref[rhs] })
+		elseif ref[lhs] then
+			ref[rhs] = ref[lhs]
+			return 0
+		elseif ref[rhs] then
+			ref[lhs] = ref[rhs]
+			return 0
+		else
+			q.first = q.first + 1
+			q[q.first] = eq
+			return 1
+		end
+	elseif type(lhs) == "number" then
+		ref[lhs] = rhs
+		return 1
+	elseif type(rhs) == "number" then
+		ref[rhs] = lhs
+		return 1
+	else
+		q.first = q.first + 1
+		q[q.first] = eq
+		return 0
+	end
+end
+
+
+
+local function rewrite(tbl, ref)
+	local types = {}
+
+	local function concrete(v)
+		local tag = getmetatable(v)
+		if tag == tipo.arrow then
+			return tipo.arrow { concrete(v._from), concrete(v._to) }
+		elseif tag == tipo.bool then
+			return tipo.bool
+		elseif type(v) == "number" then
+			assert(ref[v] ~= nil, string.format("%d is nil at ref", v))
+			return ref[v]
+		else
+			assert(false)
+		end
+	end
+	for k, v in pairs(tbl) do
+		types[k] = concrete(v)
+	end
+	return types
+end
+
+function tipo.infer(lang)
+	local _, tbl, q = tipo.constraints(lang)
+	q.first = #q
+	q.last = 1
+
+	local ref = {}
+	local retries = #q
+	while retries > 0 do
+		local elt = q[q.last]
+		q.last = q.last + 1
+		retries = retries - solver(ref, q, elt)
+	end
+	if q.last > q.first then
+		return rewrite(tbl, ref), tbl, q
+	else
+		return nil, tbl, q
+	end
 end
 
 return tipo
